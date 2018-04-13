@@ -1,0 +1,38 @@
+name: robotpy2
+channels:
+  - menpo
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free/
+  - defaults
+dependencies:
+  - certifi=2016.2.28
+  - cycler=0.10.0
+  - functools32=3.2.3.2
+  - icu=57.1
+  - jpeg=9b
+  - libpng=1.6.30
+  - matplotlib=2.0.2
+  - mkl=2017.0.3
+  - numpy=1.13.1
+  - openssl=1.0.2l
+  - pil=1.1.7
+  - pip=9.0.1
+  - pyparsing=2.2.0
+  - pyqt=5.6.0
+  - python=2.7.13
+  - python-dateutil=2.6.1
+  - pytz=2017.2
+  - qt=5.6.2
+  - setuptools=36.4.0
+  - sip=4.18
+  - six=1.10.0
+  - subprocess32=3.2.7
+  - tk=8.5.18
+  - vc=9
+  - vs2008_runtime=9.00.30729.5054
+  - wheel=0.29.0
+  - wincertstore=0.2
+  - zlib=1.2.11
+  - opencv=2.4.11
+prefix: C:\Users\dongn\Anaconda3\envs\robotpy2
+
