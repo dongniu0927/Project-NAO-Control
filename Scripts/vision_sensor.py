@@ -6,13 +6,18 @@ Created on Thu Jul  9 15:30:54 2015
 """
 
 import vrep,time,sys
+from naoqi import ALProxy
+import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image as I
 import array
+from threading import Thread # 多线程
 import cv2
+sys.path.append("../../")
+from objectDetectionMulticlasses.VideoObjectDetection import detect
 
 def streamVisionSensor(visionSensorName,clientID,pause=0.0001):
-    #Get the handle of the vision sensor
+    # 获得handle
     res1,visionSensorHandle=vrep.simxGetObjectHandle(clientID,visionSensorName,vrep.simx_opmode_oneshot_wait)
     #Get the image
     res2,resolution,image=vrep.simxGetVisionSensorImage(clientID,visionSensorHandle,0,vrep.simx_opmode_streaming)
@@ -31,21 +36,62 @@ def streamVisionSensor(visionSensorName,clientID,pause=0.0001):
         plotimg = plt.imshow(im,origin='lower')
         #Let some time to Vrep in order to let him send the first image, otherwise the loop will start with an empty image and will crash
         time.sleep(1)
-        while (vrep.simxGetConnectionId(clientID)!=-1):
-            #Get the image of the vision sensor
-            res,resolution,image=vrep.simxGetVisionSensorImage(clientID,visionSensorHandle,0,vrep.simx_opmode_buffer)
-            #Transform the image so it can be displayed using pyplot
-
-            image_byte_array = array.array('b',image)
-            im = I.frombuffer("RGB", (resolution[0],resolution[1]), image_byte_array, "raw", "RGB", 0, 1)
-            #Update the image
+        # 播放原视频
+        while (vrep.simxGetConnectionId(clientID) != -1):
+            # Get the image of the vision sensor
+            res, resolution, image = vrep.simxGetVisionSensorImage(clientID, visionSensorHandle, 0,vrep.simx_opmode_buffer)
+            # Transform the image so it can be displayed using pyplot
+            if len(resolution) == 0:
+                continue
+            image_byte_array = array.array('b', image)
+            im = I.frombuffer("RGB", (resolution[0], resolution[1]), image_byte_array, "raw", "RGB", 0, 1)
+            # Update the image
             plotimg.set_data(im)
-            #Refresh the display
+            # Refresh the display
             plt.draw()
-            #The mandatory pause ! (or it'll not work)
+            # The mandatory pause ! (or it'll not work)
             plt.pause(pause)
     print 'End of Simulation'
-    
+
+def analysisVideo(visionSensorName, clientID, callback):
+    config1 = {
+        "targetClass": "pottedplant",
+        "targetObjs": [],
+        "frameNum": 5,
+        "nowFrame": 0,
+        "show_in_v2": False
+    }
+    res1, visionSensorHandle = vrep.simxGetObjectHandle(clientID, visionSensorName, vrep.simx_opmode_oneshot_wait)
+    res2, resolution, image = vrep.simxGetVisionSensorImage(clientID, visionSensorHandle, 0, vrep.simx_opmode_streaming)
+    time.sleep(1)
+    while (vrep.simxGetConnectionId(clientID)!=-1):
+        res,resolution,image=vrep.simxGetVisionSensorImage(clientID,visionSensorHandle,0,vrep.simx_opmode_buffer)
+        if len(resolution) == 0:
+            continue
+        image_byte_array = array.array('b', image)
+        _img = I.frombuffer("RGB", (resolution[0], resolution[1]), image_byte_array, "raw", "RGB", 0, 1)
+        im = np.array(_img)[::-1, :, ::-1].copy()
+        # im = im[:-1:]
+        # print im.shape
+        # print resolution
+        # for img in image:
+        #     img=abs(255 - img)
+        # _imgs=np.array(image, dtype=np.uint8)
+        # im=np.reshape(_imgs, (resolution[0], resolution[1], 3))
+        #
+        # cv2.imshow("frame", im)
+        coordlist = detect(im)
+        # for obj in coordlist:
+        #     print obj['class']
+            # print "[%s]x1:%s,y1:%s,x2:%s,y2:%s" % (obj['label'], obj['coord'][0], obj['coord'][1], obj['coord'][2],
+            #                                        obj['coord'][3])  # output object coordination.
+        callback(coordlist, config1)
+        cv2.imshow("Output", im)
+        # Press ESC to exit :)
+        if cv2.waitKey(15) & 0xFF == 27:
+            break
+    print 'End of Analysis'
+
 def getVisionSensor(visionSensorName,clientID):
     #Get the handle of the vision sensor
     res1,visionSensorHandle=vrep.simxGetObjectHandle(clientID,visionSensorName,vrep.simx_opmode_oneshot_wait)

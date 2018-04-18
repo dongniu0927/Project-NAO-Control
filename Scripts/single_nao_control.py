@@ -3,12 +3,13 @@
 @author: Pierre Jacquot
 """
 #For more informations please check : http://www.coppeliarobotics.com/helpFiles/en/apiFunctions.htm
-import vrep,sys
+import vrep,sys,time
 from naoqi import ALProxy
 from manage_joints import get_first_handles,JointControl
 from threading import Thread # 多线程
 import json
-from vision_sensor import streamVisionSensor # 获取视频流
+from vision_sensor import streamVisionSensor, analysisVideo # 获取视频流
+
 
 print '================ Program Sarted ================'
 
@@ -67,10 +68,70 @@ print '========== NAO is listening =========='
 def handle_video():
 	streamVisionSensor("NAO_vision1",clientID) # 获取naoqi上面摄像头的数据
 
+def video2_detect(coordlist, config):
+    pass
+
+handle_video2_thread = Thread(target=analysisVideo, args=("NAO_vision2", clientID, video2_detect))
+
+def video1_detect(coordlist, config):
+	# for obj in coordlist:
+	#     print obj['class']
+	# print "[%s]x1:%s,y1:%s,x2:%s,y2:%s" % (obj['label'], obj['coord'][0], obj['coord'][1], obj['coord'][2],
+	#                                        obj['coord'][3])  # output object coordination.
+	# print coordlist, config
+	for obj in coordlist:
+		if obj['class'] == config["targetClass"]:
+			config["targetObjs"].append(obj)
+	config["nowFrame"] += 1
+	if config["nowFrame"] >= config["frameNum"]:
+		ctrlRobot(config["targetObjs"],config)
+		config["targetObjs"] = []
+		config["nowFrame"] = 0
+
+def ctrlRobot(targetClassFrames,config):
+    if len(targetClassFrames) == 0:
+        return
+    bias_range = 50
+    all_center_x = 0
+    for frame in targetClassFrames:
+        # print frame
+        all_center_x += (frame['coord'][0]+frame['coord'][2])/2
+    image_c_x = targetClassFrames[0]['w']/2
+    obj_c_x = all_center_x/len(targetClassFrames)
+    print "centerX of image", image_c_x
+    print "centerX of target:", obj_c_x
+    if obj_c_x < image_c_x - bias_range or obj_c_x > image_c_x + bias_range:
+        # robot_ip = "127.0.0.1"
+        # robot_port = 9527
+        # try:
+        #     motionProxy = ALProxy("ALMotion", robot_ip, robot_port)
+        # except Exception, e:
+        #     print "Error:", e
+        x = 0
+        y = 0
+        if obj_c_x < image_c_x - bias_range:
+            theta = 0.03
+        else:
+            theta = -0.03
+        motionProxy.moveToward(x, y, theta)
+    else:
+        print "Theta is done!"
+        x = 0.5
+        y = 0
+        theta = 0
+        motionProxy.moveToward(x, y, theta)
+        if not config["show_in_v2"]:
+            print "have opened the second video~"
+            handle_video2_thread.start()
+            config["show_in_v2"] = True
+
+
+
 # 主线程
 main_thread=Thread(target=JointControl,args=(clientID,motionProxy,0,Body))
 main_thread.start()
-# 视频流处理线程
-handle_video_thread=Thread(target=streamVisionSensor,args=("NAO_vision1",clientID))
-handle_video_thread.start()
+time.sleep(1)
 
+# 视频流处理线程
+handle_video1_thread = Thread(target=analysisVideo, args=("NAO_vision1", clientID, video1_detect))
+handle_video1_thread.start()
