@@ -9,6 +9,7 @@ from manage_joints import get_first_handles,JointControl
 from threading import Thread # 多线程
 import json
 from vision_sensor import streamVisionSensor, analysisVideo # 获取视频流
+import math
 
 
 print '================ Program Sarted ================'
@@ -41,9 +42,8 @@ naoPort=int(config_dict[u"nao_port"])
 # naoPort = raw_input()
 
 # print type(naoIP),type(naoPort)
-#naoPort = map(int,naoPort.split())
 
-motionProxy = ALProxy("ALMotion",naoIP, naoPort)
+motionProxy = ALProxy("ALMotion", naoIP, naoPort)
 postureProxy = ALProxy("ALRobotPosture", naoIP, naoPort)
 
 #Go to the posture StandInitZero
@@ -62,51 +62,34 @@ Body = [Head_Yaw,Head_Pitch,L_Hip_Yaw_Pitch,L_Hip_Roll,L_Hip_Pitch,L_Knee_Pitch,
 
 get_first_handles(clientID,Body)
 print "================ Handles Initialization ================"
-commandAngles = motionProxy.getAngles('Body', False)
+commandAngles = motionProxy.getAngles('Body', True)
+# print "command angles:", commandAngles
 print '========== NAO is listening =========='
 
-def handle_video():
-	streamVisionSensor("NAO_vision1",clientID) # 获取naoqi上面摄像头的数据
-
-def video2_detect(coordlist, config):
-    pass
-
-handle_video2_thread = Thread(target=analysisVideo, args=("NAO_vision2", clientID, video2_detect))
-
-def video1_detect(coordlist, config):
-	# for obj in coordlist:
-	#     print obj['class']
-	# print "[%s]x1:%s,y1:%s,x2:%s,y2:%s" % (obj['label'], obj['coord'][0], obj['coord'][1], obj['coord'][2],
-	#                                        obj['coord'][3])  # output object coordination.
-	# print coordlist, config
-	for obj in coordlist:
-		if obj['class'] == config["targetClass"]:
-			config["targetObjs"].append(obj)
-	config["nowFrame"] += 1
-	if config["nowFrame"] >= config["frameNum"]:
-		ctrlRobot(config["targetObjs"],config)
-		config["targetObjs"] = []
-		config["nowFrame"] = 0
-
-def ctrlRobot(targetClassFrames,config):
-    if len(targetClassFrames) == 0:
+def ctrlRobot(target_classFrames,config):
+    if len(target_classFrames) == 0:
+        print "[INFO] 未检测到目标物体"
         return
-    bias_range = 50
+    bias_range = 50 # 误差范围
     all_center_x = 0
-    for frame in targetClassFrames:
+    all_bottom_y = 0
+    all_center_y = 0
+    for frame in target_classFrames:
         # print frame
         all_center_x += (frame['coord'][0]+frame['coord'][2])/2
-    image_c_x = targetClassFrames[0]['w']/2
-    obj_c_x = all_center_x/len(targetClassFrames)
-    print "centerX of image", image_c_x
-    print "centerX of target:", obj_c_x
+        all_center_y += (frame['coord'][1]+frame['coord'][3])/2
+        all_bottom_y += frame['coord'][3]
+    image_c_x = target_classFrames[0]['w']/2
+    image_c_y = target_classFrames[0]['h']/2
+    obj_c_x = all_center_x/len(target_classFrames)  # object x's center
+    obj_c_y = all_center_y/len(target_classFrames)  # object y's center
+    obj_b_y = all_bottom_y/len(target_classFrames)
+    print "----------------------------------"
+    print "(centerX,centerY) of image:(", image_c_x, image_c_y, ")"
+    print "(centerX,centerY) of target:(", obj_c_x, obj_c_y, ")"
+    print "bottomY of target:", obj_b_y
     if obj_c_x < image_c_x - bias_range or obj_c_x > image_c_x + bias_range:
-        # robot_ip = "127.0.0.1"
-        # robot_port = 9527
-        # try:
-        #     motionProxy = ALProxy("ALMotion", robot_ip, robot_port)
-        # except Exception, e:
-        #     print "Error:", e
+        print "水平角度纠正中..."
         x = 0
         y = 0
         if obj_c_x < image_c_x - bias_range:
@@ -115,23 +98,77 @@ def ctrlRobot(targetClassFrames,config):
             theta = -0.03
         motionProxy.moveToward(x, y, theta)
     else:
-        print "Theta is done!"
-        x = 0.5
+        focal_length = 372 # 像素
+        nao_height = 48.3  # cm
+        print "水平角度纠正完成!"
+        obj_y_len = abs(obj_b_y - image_c_y)  # 物体y轴距图像中心带的距离
+        gama = math.atan(obj_y_len*1.0 / focal_length)  # 372为焦距像素
+        print "gama幅度", gama
+        gama_angle = gama*360*0.1/(2*math.pi)  # 算角度
+        pitch_angle = motionProxy.getAngles('HeadPitch', True)[0]  # 头上下角度
+        beta = gama_angle+pitch_angle+1.2  # 1.2为上面摄像头与水平的偏移距离
+        print "最终角度：", beta
+        dist = nao_height*1.0 / math.tan(beta) / 100
+        print "距离物体距离：", dist, "米"
+        if dist<0.5:
+            print "结束行走"
+            return
+        x = dist
         y = 0
         theta = 0
-        motionProxy.moveToward(x, y, theta)
-        if not config["show_in_v2"]:
-            print "have opened the second video~"
-            handle_video2_thread.start()
-            config["show_in_v2"] = True
+        motionProxy.moveTo(x, y, theta)
+        # if not config["show_in_v2"]:
+        #     print "[Info] Have opened the second video~"
+        #     config["show_in_v2"] = True
+
+def get_average_coord(coordlist, config, callback):
+    for obj in coordlist:
+        if obj['class'] == config["target_class"]:
+            config["target_objs"].append(obj)
+    config["now_frame"] += 1
+    if config["now_frame"] >= config["frame_num"]:
+        callback(config["target_objs"], config)
+        config["target_objs"] = []
+        config["now_frame"] = 0
 
 
+
+def handle_video1_coordlist(coordlist, config):
+    # print "video1:", coordlist
+    get_average_coord(coordlist, config, ctrlRobot)
+
+
+def handle_video2_coordlist(coordlist, config):
+    print "video2:", coordlist
+    get_average_coord(coordlist, config, ctrlRobot)
 
 # 主线程
 main_thread=Thread(target=JointControl,args=(clientID,motionProxy,0,Body))
 main_thread.start()
-time.sleep(1)
-
-# 视频流处理线程
-handle_video1_thread = Thread(target=analysisVideo, args=("NAO_vision1", clientID, video1_detect))
-handle_video1_thread.start()
+# 视频处理线程
+# 上摄像头视频处理
+video_config = {
+    "target_class": "pottedplant",
+    "target_objs": [],
+    "frame_num": 5,
+    "now_frame": 0,
+    "show_in_v2": False,
+    "video_label":"outputTop",
+    "play_video": True,
+    "vision_sensor_handle": -1
+}
+handle_video_thread = Thread(target=analysisVideo, args=("NAO_vision1", clientID, video_config, handle_video1_coordlist))
+handle_video_thread.start()
+# 下面部分视频处理
+# video2_config = {
+#     "target_class": "pottedplant",
+#     "target_objs": [],
+#     "frame_num": 5,
+#     "now_frame": 0,
+#     "show_in_v1": False,
+#     "video_label":"outputBottom",
+#     "play_video": True,
+#     "vision_sensor_handle": -1
+# }
+# handle_video2_thread = Thread(target=analysisVideo, args=("NAO_vision2", clientID, video2_config, handle_video2_coordlist))
+# handle_video2_thread.start()
